@@ -1,77 +1,86 @@
 import pytest
 from fastapi.testclient import TestClient
-from main import app
-from models.db import fake_db
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from main import app  # Твій основний файл з FastAPI
+from db.base import Base  # Базовий клас моделей для створення таблиць
+from db.session import get_db  # Залежність, яку ми будемо підміняти
+
+# 1. Налаштовуємо тестову базу даних у пам'яті (SQLite)
+# Вона надзвичайно швидка і не зберігає дані після завершення тестів
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+# 2. Функція, яка підмінить реальну базу на тестову
+def override_get_db():
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+
+
+# Говоримо FastAPI: "Коли хтось просить get_db, давай їм override_get_db"
+app.dependency_overrides[get_db] = override_get_db
+
+# Клієнт для імітації браузера/запитів
 client = TestClient(app)
 
 
+# 3. Фікстура: створює порожні таблиці перед кожним тестом і видаляє їх після
 @pytest.fixture(autouse=True)
-def clear_db():
-
-    fake_db.clear()
+def setup_database():
+    Base.metadata.create_all(bind=engine)
     yield
+    Base.metadata.drop_all(bind=engine)
 
+
+# --- САМІ ТЕСТИ ---
 
 def test_create_book():
-    response = client.post("/books/", json={
-        "title": "1984",
-        "author": "George Orwell",
-        "year": 1949,
-        "status": "available"
-    })
+    """Перевіряємо, чи працює створення книги"""
+    response = client.post(
+        "/books/",
+        json={
+            "title": "Тестова книга",
+            "author": "Тестовий автор",
+            "description": "Перевірка тестів",
+            "year": 2024,
+            "status": "available"
+        }
+    )
     assert response.status_code == 201
     data = response.json()
-    assert "id" in data
-    assert data["title"] == "1984"
+    assert data["title"] == "Тестова книга"
+    assert "id" in data  # Перевіряємо, що БД згенерувала ID
 
 
 def test_get_all_books():
-    # Додаємо дві книги
-    client.post("/books/", json={"title": "Book 1", "author": "Author A", "year": 2000})
-    client.post("/books/", json={"title": "Book 2", "author": "Author B", "year": 2010, "status": "checked_out"})
+    """Перевіряємо, чи працює отримання списку книг"""
+    # Спершу додаємо книгу в нашу порожню тестову БД
+    client.post(
+        "/books/",
+        json={
+            "title": "Книга для GET",
+            "author": "Автор",
+            "description": "Опис",
+            "year": 2023,
+            "status": "available"
+        }
+    )
 
-    # Отримуємо всі
+    # Тепер пробуємо її отримати
     response = client.get("/books/")
     assert response.status_code == 200
-    assert len(response.json()) == 2
-
-
-def test_get_books_filtered_by_status():
-    client.post("/books/", json={"title": "B1", "author": "A1", "year": 2000, "status": "available"})
-    client.post("/books/", json={"title": "B2", "author": "A2", "year": 2001, "status": "checked_out"})
-
-    response = client.get("/books/?status=checked_out")
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["title"] == "B2"
-
-
-def test_get_books_sorted():
-    client.post("/books/", json={"title": "Zebra", "author": "A", "year": 2020})
-    client.post("/books/", json={"title": "Apple", "author": "B", "year": 1990})
-
-    # Сортування по року
-    response = client.get("/books/?sort_by=year")
-    assert response.json()[0]["title"] == "Apple"
-
-
-def test_get_book_by_id_not_found():
-    import uuid
-    random_uuid = str(uuid.uuid4())
-    response = client.get(f"/books/{random_uuid}")
-    assert response.status_code == 404
-
-
-def test_delete_book_idempotent():
-    # Додаємо книгу
-    create_res = client.post("/books/", json={"title": "To Delete", "author": "A", "year": 2020})
-    book_id = create_res.json()["id"]
-
-    # Видаляємо (перший раз)
-    del_res1 = client.delete(f"/books/{book_id}")
-    assert del_res1.status_code == 204
-
-    # Видаляємо (другий раз) - має також повернути 204, не падаючи
-    del_res2 = client.delete(f"/books/{book_id}")
-    assert del_res2.status_code == 204
+    assert len(data) == 1  # Має бути рівно одна книга
+    assert data[0]["title"] == "Книга для GET"

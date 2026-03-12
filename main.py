@@ -1,15 +1,12 @@
 from fastapi import FastAPI
 from api.books import router as books_router
+from db.session import init_db
 
-app = FastAPI(
-    title="Library API",
-    description="API для управління бібліотекою",
-    version="1.0.0"
-)
+app = FastAPI(title="Library API Lab 2")
+
+@app.on_event("startup")
+def on_startup():
+    # Створює таблиці в Postgres
+    init_db()
 
 app.include_router(books_router)
-
-if __name__ == "__main__":
-    import uvicorn
-    # Запуск сервера
-    uvicorn.run("main:app", host="127.0.0.0", port=8000, reload=True)

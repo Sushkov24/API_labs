@@ -12,4 +12,4 @@ class BookModel(Base):
     author = Column(String, nullable=False)
     description = Column(String, nullable=True)
     year = Column(Integer, nullable=False)
-    status = Column(SQLEnum(BookStatus), default=BookStatus.AVAILABLE)
+    status = Column(SQLEnum(BookStatus), default=BookStatus.available)

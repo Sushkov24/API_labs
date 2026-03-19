@@ -1,21 +1,33 @@
-from pydantic import BaseModel, Field
-from typing import Optional
-from uuid import UUID
 from enum import Enum
+from pydantic import BaseModel
+from typing import List, Optional
+from uuid import UUID
 
 class BookStatus(str, Enum):
-    AVAILABLE = "available"
-    CHECKED_OUT = "checked_out"
+    available = "available"
+    borrowed = "borrowed"
 
 class BookBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=150, description="Назва книги")
-    author: str = Field(..., min_length=1, max_length=100, description="Автор книги")
-    description: Optional[str] = Field(None, max_length=500, description="Опис книги")
-    year: int = Field(..., gt=0, description="Рік випуску")
-    status: BookStatus = Field(default=BookStatus.AVAILABLE, description="Статус книги")
+    title: str
+    author: str
+    description: Optional[str] = None
+    year: int
 
 class BookCreate(BookBase):
-    pass
+    status: BookStatus = BookStatus.available
 
 class BookResponse(BookBase):
     id: UUID
+    status: BookStatus
+
+    class Config:
+        from_attributes = True
+
+# Нова схема для пагінації
+class PaginatedBookResponse(BaseModel):
+    count: int
+    skip: int
+    limit: int
+    next_url: Optional[str] = None
+    prev_url: Optional[str] = None
+    books: List[BookResponse]

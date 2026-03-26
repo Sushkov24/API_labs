@@ -9,29 +9,27 @@ class BookRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all(self, skip: int = 0, limit: int = 10, status=None, author=None, sort_by=None) -> List[BookModel]:
-        query = select(BookModel)
+    def get_all(self, limit: int = 10, cursor: Optional[UUID] = None, status=None, author=None) -> List[BookModel]:
+        # Обов'язкове сортування за ID для курсорної пагінації
+        query = select(BookModel).order_by(BookModel.id)
 
-        # 1. Фільтрація на рівні БД
+        #Фільтрація на рівні БД
         if status:
             query = query.where(BookModel.status == status)
         if author:
             query = query.where(BookModel.author.ilike(f"%{author}%"))
 
-        # 2. Сортування на рівні БД
-        if sort_by == "title":
-            query = query.order_by(BookModel.title)
-        elif sort_by == "year":
-            query = query.order_by(BookModel.year)
+        if cursor:
+            query = query.where(BookModel.id > cursor)
 
-        # 3. Пагінація
-        query = query.offset(skip).limit(limit)
+        # 4. Ліміт
+        query = query.limit(limit)
 
         result = self.db.execute(query)
         return result.scalars().all()
 
     def get_count(self, status=None, author=None) -> int:
-        """Повертає загальну кількість книг, що відповідають фільтрам (без limit/offset)"""
+        """Повертає загальну кількість книг, що відповідають фільтрам"""
         query = select(func.count(BookModel.id))
 
         if status:

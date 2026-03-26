@@ -14,40 +14,27 @@ class BookService:
             request: Request,
             status: Optional[BookStatus] = None,
             author: Optional[str] = None,
-            sort_by: Optional[str] = None,
-            skip: int = 0,
+            cursor: Optional[uuid.UUID] = None,
             limit: int = 10
     ) -> dict:
-        # Для БД статус треба передавати як рядок (value)
         db_status = status.value if status else None
 
-        # 1. Рахуємо загальну кількість для пагінації
-        total_count = self.repo.get_count(status=db_status, author=author)
-
-        # 2. Беремо потрібну сторінку з бази даних
+        # 1. Беремо потрібну сторінку з бази даних
         db_books = self.repo.get_all(
-            skip=skip,
             limit=limit,
+            cursor=cursor,
             status=db_status,
-            author=author,
-            sort_by=sort_by
+            author=author
         )
 
-        # 3. Генеруємо next_url (Наступна сторінка)
+        # 2. Генеруємо next_cursor та next_url
+        next_cursor = None
         next_url = None
-        if skip + limit < total_count:
-            next_skip = skip + limit
-            next_url = str(request.url.include_query_params(skip=next_skip, limit=limit))
+        if len(db_books) == limit and len(db_books) > 0:
+            next_cursor = db_books[-1].id  # ID останньої книги в списку стає нашим курсором
+            next_url = str(request.url.include_query_params(cursor=next_cursor, limit=limit))
 
-        # --- ДОДАНО ЛОГІКУ ДЛЯ PREV_URL (Попередня сторінка) ---
-        prev_url = None
-        if skip > 0:
-            # max(0, ...) гарантує, що skip ніколи не стане від'ємним
-            prev_skip = max(0, skip - limit)
-            prev_url = str(request.url.include_query_params(skip=prev_skip, limit=limit))
-        # -------------------------------------------------------
-
-        # 4. Конвертуємо у Pydantic схеми
+        # 3. Конвертуємо у Pydantic схеми
         books_list = [
             BookResponse(
                 id=b.id,
@@ -59,12 +46,11 @@ class BookService:
             ) for b in db_books
         ]
 
+        # 4. Повертаємо словник, який відповідає нашій новій CursorPaginatedResponse
         return {
-            "count": total_count,
-            "skip": skip,
             "limit": limit,
+            "next_cursor": next_cursor,
             "next_url": next_url,
-            "prev_url": prev_url,  # <--- ДОДАНО У ВІДПОВІДЬ
             "books": books_list
         }
 

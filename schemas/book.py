@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from uuid import UUID
 
@@ -20,14 +20,11 @@ class BookResponse(BookBase):
     id: UUID
     status: BookStatus
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
-# Нова схема для пагінації
-class PaginatedBookResponse(BaseModel):
-    count: int
-    skip: int
+# Схема для курсорної пагінації (Лабораторна №3)
+class CursorPaginatedResponse(BaseModel):
     limit: int
+    next_cursor: Optional[UUID] = None
     next_url: Optional[str] = None
-    prev_url: Optional[str] = None
     books: List[BookResponse]

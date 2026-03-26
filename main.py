@@ -1,12 +1,14 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from api.books import router as books_router
 from db.session import init_db
 
-app = FastAPI(title="Library API Lab 2")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Те, що виконується при СТАРТІ сервера:
+    init_db()  # Створює таблиці в Postgres
+    yield
 
-@app.on_event("startup")
-def on_startup():
-    # Створює таблиці в Postgres
-    init_db()
+app = FastAPI(title="Library API Lab 3", lifespan=lifespan)
 
 app.include_router(books_router)

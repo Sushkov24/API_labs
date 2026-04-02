@@ -1,18 +1,16 @@
 services:
-  db:
-    image: postgres:15
-    container_name: library_db
+  mongo_db:
+    image: mongo:latest
+    container_name: library_mongo
+    restart: always
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: library_db
+      MONGO_INITDB_ROOT_USERNAME: mongo_admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: books
     ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d library_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
 
   app:
     build: .
@@ -20,7 +18,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://user:password@db:5432/library_db
+      # Зверни увагу: замість localhost ми використовуємо назву контейнера mongo_db
+      MONGO_URL: mongodb://mongo_admin:password@mongo_db:27017
     depends_on:
-      db:
-        condition: service_healthy
+      - mongo_db
+
+volumes:
+  mongo_data:

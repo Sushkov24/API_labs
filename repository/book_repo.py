@@ -1,58 +1,54 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from models.book import BookModel
-from uuid import UUID
 from typing import List, Optional
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 
 
 class BookRepository:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.books
 
-    def get_all(self, limit: int = 10, cursor: Optional[UUID] = None, status=None, author=None) -> List[BookModel]:
-        # Обов'язкове сортування за ID для курсорної пагінації
-        query = select(BookModel).order_by(BookModel.id)
+    async def get_all(self, skip: int = 0, limit: int = 10, status: str = None, author: str = None) -> List[dict]:
+        query = {}
 
-        #Фільтрація на рівні БД
+        # Фільтрація в стилі MongoDB (словники)
         if status:
-            query = query.where(BookModel.status == status)
+            query["status"] = status
         if author:
-            query = query.where(BookModel.author.ilike(f"%{author}%"))
+            query["author"] = {"$regex": author, "$options": "i"}
 
-        if cursor:
-            query = query.where(BookModel.id > cursor)
+        # У Motor find() повертає курсор
+        cursor = self.collection.find(query).skip(skip).limit(limit)
+        books = await cursor.to_list(length=limit)
+        return books
 
-        # 4. Ліміт
-        query = query.limit(limit)
-
-        result = self.db.execute(query)
-        return result.scalars().all()
-
-    def get_count(self, status=None, author=None) -> int:
-        """Повертає загальну кількість книг, що відповідають фільтрам"""
-        query = select(func.count(BookModel.id))
-
+    async def get_count(self, status: str = None, author: str = None) -> int:
+        query = {}
         if status:
-            query = query.where(BookModel.status == status)
+            query["status"] = status
         if author:
-            query = query.where(BookModel.author.ilike(f"%{author}%"))
+            query["author"] = {"$regex": author, "$options": "i"}
 
-        return self.db.execute(query).scalar()
+        return await self.collection.count_documents(query)
 
-    def add(self, book_data: dict) -> BookModel:
-        db_book = BookModel(**book_data)
-        self.db.add(db_book)
-        self.db.commit()
-        self.db.refresh(db_book)
-        return db_book
+    async def add(self, book_data: dict) -> dict:
+        result = await self.collection.insert_one(book_data)
+        # Додаємо згенерований _id в наш словник, щоб повернути його
+        book_data["_id"] = result.inserted_id
+        return book_data
 
-    def get_by_id(self, book_id: UUID) -> Optional[BookModel]:
-        return self.db.get(BookModel, book_id)
+    async def get_by_id(self, book_id: str) -> Optional[dict]:
+        try:
+            obj_id = ObjectId(book_id)
+        except Exception:
+            return None
 
-    def delete(self, book_id: UUID) -> bool:
-        book = self.db.get(BookModel, book_id)
-        if book:
-            self.db.delete(book)
-            self.db.commit()
-            return True
-        return False
+        return await self.collection.find_one({"_id": obj_id})
+
+    async def delete(self, book_id: str) -> bool:
+        try:
+            obj_id = ObjectId(book_id)
+        except Exception:
+            return False
+
+        result = await self.collection.delete_one({"_id": obj_id})
+        return result.deleted_count > 0

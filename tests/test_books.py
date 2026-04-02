@@ -1,53 +1,45 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from main import app
-from db.base import Base  # Базовий клас моделей для створення таблиць
-from db.session import get_db  # Залежність, яку ми будемо підміняти
+from db.session import get_db
 
-# 1. Налаштовуємо тестову базу даних у пам'яті (SQLite)
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+MONGO_URL = "mongodb://mongo_admin:password@localhost:27017"
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+sync_mongo_client = MongoClient(MONGO_URL)
 
 
 def override_get_db():
+    """
+    Створюємо клієнт Motor ТУТ.
+    """
+    client = AsyncIOMotorClient(MONGO_URL)
     try:
-        db = TestingSessionLocal()
-        yield db
+        yield client.test_books_db
     finally:
-        db.close()
+        client.close()
 
 
 app.dependency_overrides[get_db] = override_get_db
 
-
 client = TestClient(app)
 
 
-# 3. Фікстура: створює порожні таблиці перед кожним тестом і видаляє їх після
 @pytest.fixture(autouse=True)
 def setup_database():
-    Base.metadata.create_all(bind=engine)
+    sync_mongo_client.drop_database("test_books_db")
     yield
-    Base.metadata.drop_all(bind=engine)
-
+    sync_mongo_client.drop_database("test_books_db")
 
 
 def test_create_book():
-    """Перевіряємо, чи працює створення книги"""
+    """Перевіряємо, чи працює створення книги у Mongo"""
     response = client.post(
         "/books/",
         json={
-            "title": "Тестова книга",
+            "title": "Тестова книга Mongo",
             "author": "Тестовий автор",
             "description": "Перевірка тестів",
             "year": 2024,
@@ -56,12 +48,13 @@ def test_create_book():
     )
     assert response.status_code == 201
     data = response.json()
-    assert data["title"] == "Тестова книга"
-    assert "id" in data
+    assert data["title"] == "Тестова книга Mongo"
+
+    assert "_id" in data or "id" in data
 
 
 def test_get_all_books():
-    """Перевіряємо, чи працює отримання списку книг з новою схемою CursorPaginatedResponse"""
+    """Перевіряємо, чи працює отримання списку книг з PaginatedBookResponse"""
     client.post(
         "/books/",
         json={
@@ -77,37 +70,32 @@ def test_get_all_books():
     assert response.status_code == 200
     data = response.json()
 
-    #тепер книги лежать всередині ключа "books"
     assert "books" in data
+    assert "count" in data
+    assert data["count"] == 1
     assert len(data["books"]) == 1
     assert data["books"][0]["title"] == "Книга для GET"
 
 
-def test_cursor_pagination():
-    """Тестуємо логіку курсорної пагінації (Лабораторна 3)"""
+def test_limit_offset_pagination():
+    """Тестуємо логіку Limit-Offset пагінації (Лабораторна 4)"""
+    client.post("/books/", json={"title": "Книга 1", "author": "Пагінація Тестер", "year": 2024, "status": "available"})
+    client.post("/books/", json={"title": "Книга 2", "author": "Пагінація Тестер", "year": 2024, "status": "available"})
 
-    # 1. Створюємо дві тестові книги
-    client.post("/books/", json={"title": "Книга 1", "author": "Курсор Тестер", "year": 2024, "status": "available"})
-    client.post("/books/", json={"title": "Книга 2", "author": "Курсор Тестер", "year": 2024, "status": "available"})
-
-    # 2. Отримуємо ПЕРШУ сторінку (ліміт = 1)
-    res_page1 = client.get("/books/?author=Курсор Тестер&limit=1")
+    res_page1 = client.get("/books/?author=Пагінація Тестер&skip=0&limit=1")
     assert res_page1.status_code == 200
     data_page1 = res_page1.json()
 
-    # Перевіряємо наявність курсора
+    assert data_page1["count"] == 2
     assert len(data_page1["books"]) == 1
-    assert data_page1["next_cursor"] is not None
+    # Безпечно дістаємо id або _id
+    book1_id = data_page1["books"][0].get("_id") or data_page1["books"][0].get("id")
 
-    book1_id = data_page1["books"][0]["id"]
-    cursor = data_page1["next_cursor"]
-
-    res_page2 = client.get(f"/books/?author=Курсор Тестер&limit=1&cursor={cursor}")
+    res_page2 = client.get("/books/?author=Пагінація Тестер&skip=1&limit=1")
     assert res_page2.status_code == 200
     data_page2 = res_page2.json()
 
     assert len(data_page2["books"]) == 1
-    book2_id = data_page2["books"][0]["id"]
+    book2_id = data_page2["books"][0].get("_id") or data_page2["books"][0].get("id")
 
-    # Перевіряємо, що пагінація дійсно дала нам НАСТУПНУ книгу, а не ту саму
     assert book1_id != book2_id

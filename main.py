@@ -1,14 +1,23 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from api.books import router as books_router
-from db.session import init_db
+from db.session import init_db, db
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Те, що виконується при СТАРТІ сервера:
-    init_db()  # Створює таблиці в Postgres
+    # Ініціалізуємо AsyncIOMotorClient
+    init_db()
+    print("Підключення до MongoDB ініціалізовано")
+
     yield
 
-app = FastAPI(title="Library API Lab 3", lifespan=lifespan)
+    # Закриваємо з'єднання з базою, коли додаток вимикається
+    if db.client:
+        db.client.close()
+        print("Підключення до MongoDB закрито")
+
+
+app = FastAPI(title="Library API MongoDB Lab 4", lifespan=lifespan)
 
 app.include_router(books_router)

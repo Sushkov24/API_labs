@@ -1,101 +1,86 @@
 import pytest
-from fastapi.testclient import TestClient
-from pymongo import MongoClient
-from motor.motor_asyncio import AsyncIOMotorClient
+from main import app, books_collection
 
-from main import app
-from db.session import get_db
+@pytest.fixture
+def client():
+    """Фікстура для створення тестового клієнта Flask"""
+    app.config['TESTING'] = True
 
-MONGO_URL = "mongodb://mongo_admin:password@localhost:27017"
-
-sync_mongo_client = MongoClient(MONGO_URL)
-
-
-def override_get_db():
-    """
-    Створюємо клієнт Motor ТУТ.
-    """
-    client = AsyncIOMotorClient(MONGO_URL)
-    try:
-        yield client.test_books_db
-    finally:
-        client.close()
-
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
+    with app.test_client() as client:
+        yield client
 
 
 @pytest.fixture(autouse=True)
-def setup_database():
-    sync_mongo_client.drop_database("test_books_db")
+def setup_db():
+    """Фікстура для очищення бази даних перед і після кожного тесту"""
+    # Очищаємо колекцію перед тестом
+    books_collection.delete_many({})
+
     yield
-    sync_mongo_client.drop_database("test_books_db")
+    books_collection.delete_many({})
 
 
-def test_create_book():
-    """Перевіряємо, чи працює створення книги у Mongo"""
-    response = client.post(
-        "/books/",
-        json={
-            "title": "Тестова книга Mongo",
-            "author": "Тестовий автор",
-            "description": "Перевірка тестів",
-            "year": 2024,
-            "status": "available"
-        }
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["title"] == "Тестова книга Mongo"
-
-    assert "_id" in data or "id" in data
-
-
-def test_get_all_books():
-    """Перевіряємо, чи працює отримання списку книг з PaginatedBookResponse"""
-    client.post(
-        "/books/",
-        json={
-            "title": "Книга для GET",
-            "author": "Автор",
-            "description": "Опис",
-            "year": 2023,
-            "status": "available"
-        }
-    )
-
-    response = client.get("/books/")
+def test_get_empty_books(client):
+    """Тест отримання порожнього списку книг"""
+    response = client.get('/books')
     assert response.status_code == 200
-    data = response.json()
-
-    assert "books" in data
-    assert "count" in data
-    assert data["count"] == 1
-    assert len(data["books"]) == 1
-    assert data["books"][0]["title"] == "Книга для GET"
+    assert response.get_json() == []
 
 
-def test_limit_offset_pagination():
-    """Тестуємо логіку Limit-Offset пагінації (Лабораторна 4)"""
-    client.post("/books/", json={"title": "Книга 1", "author": "Пагінація Тестер", "year": 2024, "status": "available"})
-    client.post("/books/", json={"title": "Книга 2", "author": "Пагінація Тестер", "year": 2024, "status": "available"})
+def test_create_book(client):
+    """Тест створення нової книги"""
+    new_book = {
+        "title": "Flask Book",
+        "author": "John Doe",
+        "year": 2023,
+        "status": "available"
+    }
+    response = client.post('/books', json=new_book)
 
-    res_page1 = client.get("/books/?author=Пагінація Тестер&skip=0&limit=1")
-    assert res_page1.status_code == 200
-    data_page1 = res_page1.json()
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data['title'] == "Flask Book"
+    assert '_id' in data  # Перевіряємо, що MongoDB згенерувала ID
 
-    assert data_page1["count"] == 2
-    assert len(data_page1["books"]) == 1
-    # Безпечно дістаємо id або _id
-    book1_id = data_page1["books"][0].get("_id") or data_page1["books"][0].get("id")
 
-    res_page2 = client.get("/books/?author=Пагінація Тестер&skip=1&limit=1")
-    assert res_page2.status_code == 200
-    data_page2 = res_page2.json()
+def test_get_single_book(client):
+    """Тест отримання конкретної книги за ID"""
+    new_book = {"title": "Get Me", "author": "Author", "year": 2020}
+    post_response = client.post('/books', json=new_book)
+    book_id = post_response.get_json()['_id']
 
-    assert len(data_page2["books"]) == 1
-    book2_id = data_page2["books"][0].get("_id") or data_page2["books"][0].get("id")
+    response = client.get(f'/books/{book_id}')
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['title'] == "Get Me"
+    assert data['_id'] == book_id
 
-    assert book1_id != book2_id
+
+def test_update_book(client):
+    """Тест оновлення книги"""
+    # 1. Створюємо книгу
+    new_book = {"title": "Old Title", "author": "Author"}
+    post_response = client.post('/books', json=new_book)
+    book_id = post_response.get_json()['_id']
+
+    # 2. Оновлюємо її
+    update_data = {"title": "New Title", "author": "Author"}
+    put_response = client.put(f'/books/{book_id}', json=update_data)
+
+    assert put_response.status_code == 200
+    assert put_response.get_json()['title'] == "New Title"
+
+
+def test_delete_book(client):
+    """Тест видалення книги"""
+    # 1. Створюємо книгу
+    new_book = {"title": "Delete Me", "author": "Author"}
+    post_response = client.post('/books', json=new_book)
+    book_id = post_response.get_json()['_id']
+
+    # 2. Видаляємо її
+    delete_response = client.delete(f'/books/{book_id}')
+    assert delete_response.status_code == 200
+
+    get_response = client.get(f'/books/{book_id}')
+    assert get_response.status_code == 404

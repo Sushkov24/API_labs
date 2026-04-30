@@ -12,16 +12,24 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  redis:
+    image: redis:latest
+    container_name: book-cache
+    ports:
+      - "6379:6379"
+    restart: always
+
   app:
     build: .
     container_name: library_api
     ports:
       - "8000:8000"
     environment:
-      # Зверни увагу: замість localhost ми використовуємо назву контейнера mongo_db
       MONGO_URL: mongodb://mongo_admin:password@mongo_db:27017
+      REDIS_URL: redis://redis:6379
     depends_on:
       - mongo_db
+      - redis
 
 volumes:
   mongo_data:

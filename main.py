@@ -1,162 +1,44 @@
-from flask import Flask, request
-from flask_restful import Api, Resource
-from flasgger import Swagger
-from pymongo import MongoClient
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from motor.motor_asyncio import AsyncIOMotorClient
 
-# Імпортуємо наш новий клас-репозиторій
-from book_repo_mongo import BookRepositoryMongo
-
-app = Flask(__name__)
-api = Api(app)
-
-# Налаштування Swagger
-app.config['SWAGGER'] = {
-    'title': 'Library API Flask + MongoDB (Lab 5)',
-    'uiversion': 3
-}
-swagger = Swagger(app)
-
-# Підключення до бази даних
-MONGO_URL = "mongodb://mongo_admin:password@localhost:27017"
-client = MongoClient(MONGO_URL)
-db = client.library_flask_db
-books_collection = db.books
-
-# Створюємо екземпляр репозиторію і передаємо йому колекцію
-book_repo = BookRepositoryMongo(books_collection)
-
-class BookListResource(Resource):
-    def get(self):
-        """
-        Отримання списку книг з пагінацією
-        ---
-        tags:
-          - Books
-        parameters:
-          - name: skip
-            in: query
-            type: integer
-            default: 0
-          - name: limit
-            in: query
-            type: integer
-            default: 10
-        responses:
-          200:
-            description: Список книг успішно отримано
-        """
-        skip = request.args.get('skip', default=0, type=int)
-        limit = request.args.get('limit', default=10, type=int)
-
-        # Викликаємо репозиторій замість бази
-        result = book_repo.get_all(skip=skip, limit=limit)
-        return result, 200
-
-    def post(self):
-        """
-        Додавання нової книги
-        ---
-        tags:
-          - Books
-        parameters:
-          - in: body
-            name: body
-            required: true
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                author:
-                  type: string
-                year:
-                  type: integer
-                status:
-                  type: string
-        responses:
-          201:
-            description: Книгу успішно створено
-        """
-        data = request.get_json()
-        created_book = book_repo.create(data)
-        return created_book, 201
+from api.books import router as books_router
+from api.auth import router as auth_router
+from db.session import db, MONGO_URL
 
 
-class BookResource(Resource):
-    def get(self, book_id):
-        """
-        Отримання книги за ID
-        ---
-        tags:
-          - Books
-        parameters:
-          - name: book_id
-            in: path
-            type: string
-            required: true
-        responses:
-          200:
-            description: Книгу знайдено
-          404:
-            description: Книгу не знайдено
-        """
-        book = book_repo.get_by_id(book_id)
-        if book:
-            return book, 200
-        return {"message": "Book not found or invalid ID"}, 404
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Виконується при старті ---
+    # Ініціалізуємо клієнт ТІЛЬКИ коли event loop вже працює
+    db.client = AsyncIOMotorClient(MONGO_URL)
 
-    def put(self, book_id):
-        """
-        Оновлення книги за ID
-        ---
-        tags:
-          - Books
-        parameters:
-          - name: book_id
-            in: path
-            type: string
-            required: true
-          - in: body
-            name: body
-            schema:
-              type: object
-        responses:
-          200:
-            description: Книгу успішно оновлено
-          404:
-            description: Книгу не знайдено
-        """
-        data = request.get_json()
-        updated_book = book_repo.update(book_id, data)
-        if updated_book:
-            return updated_book, 200
-        return {"message": "Book not found or invalid ID"}, 404
+    try:
+        # Пінгуємо базу для перевірки зв'язку
+        await db.client.admin.command('ping')
+        print("✅ Підключення до MongoDB успішне!")
+    except Exception as e:
+        print(f"❌ Помилка підключення до MongoDB: {e}")
 
-    def delete(self, book_id):
-        """
-        Видалення книги за ID
-        ---
-        tags:
-          - Books
-        parameters:
-          - name: book_id
-            in: path
-            type: string
-            required: true
-        responses:
-          200:
-            description: Книгу видалено
-          404:
-            description: Книгу не знайдено
-        """
-        success = book_repo.delete(book_id)
-        if success:
-            return {"message": f"Book {book_id} deleted successfully"}, 200
-        return {"message": "Book not found or invalid ID"}, 404
+    yield  # Тут сервер працює і обробляє запити (або тести виконуються)
+
+    # --- Виконується при зупинці ---
+    db.client.close()
+    print("✅ Клієнт MongoDB закрито")
 
 
-api.add_resource(BookListResource, '/books')
-api.add_resource(BookResource, '/books/<string:book_id>')
+app = FastAPI(
+    title="Library API",
+    description="API для управління книгами з JWT авторизацією (Lab 6)",
+    version="1.0.0",
+    lifespan=lifespan  # <--- Передаємо наш lifespan сюди
+)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# Підключаємо маршрути
+app.include_router(books_router)
+app.include_router(auth_router)
+
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Secure Library API (FastAPI)!"}

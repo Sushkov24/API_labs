@@ -40,5 +40,16 @@ services:
       - ./openapi.yaml:/etc/prism/openapi.yaml:ro
     command: mock -h 0.0.0.0 /etc/prism/openapi.yaml
 
+  locust:
+    image: locustio/locust:latest
+    container_name: library_locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./locustfile.py:/mnt/locust/locustfile.py
+    command: -f /mnt/locust/locustfile.py --host=http://app:8000
+    depends_on:
+      - app
+
 volumes:
   mongo_data:

@@ -1,0 +1,500 @@
+openapi: 3.0.3
+info:
+  title: Library API
+  description: API для управління книгами з JWT авторизацією (Lab 8 - Prism Mock)
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:4010
+    description: Prism Mock Server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    BookStatus:
+      type: string
+      enum:
+        - available
+        - borrowed
+      example: available
+
+    BookCreate:
+      type: object
+      required:
+        - title
+        - author
+        - year
+      properties:
+        title:
+          type: string
+          example: "Кобзар"
+        author:
+          type: string
+          example: "Тарас Шевченко"
+        description:
+          type: string
+          nullable: true
+          example: "Збірка поезій Тараса Шевченка"
+        year:
+          type: integer
+          example: 1840
+        status:
+          $ref: '#/components/schemas/BookStatus'
+
+    BookResponse:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "64a1f2e3b4c5d6e7f8a9b0c1"
+        title:
+          type: string
+          example: "Кобзар"
+        author:
+          type: string
+          example: "Тарас Шевченко"
+        description:
+          type: string
+          nullable: true
+          example: "Збірка поезій Тараса Шевченка"
+        year:
+          type: integer
+          example: 1840
+        status:
+          $ref: '#/components/schemas/BookStatus'
+
+    PaginatedBookResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          example: 2
+        skip:
+          type: integer
+          example: 0
+        limit:
+          type: integer
+          example: 10
+        books:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookResponse'
+          example:
+            - _id: "64a1f2e3b4c5d6e7f8a9b0c1"
+              title: "Кобзар"
+              author: "Тарас Шевченко"
+              description: "Збірка поезій Тараса Шевченка"
+              year: 1840
+              status: "available"
+            - _id: "64a1f2e3b4c5d6e7f8a9b0c2"
+              title: "Тіні забутих предків"
+              author: "Михайло Коцюбинський"
+              description: "Повість про гуцульський побут"
+              year: 1911
+              status: "borrowed"
+
+    UserCreate:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "securepassword123"
+
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.abc123"
+        refresh_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicmVmcmVzaCIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.xyz789"
+        token_type:
+          type: string
+          example: "bearer"
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: "Книгу не знайдено"
+
+security:
+  - BearerAuth: []
+
+paths:
+  /:
+    get:
+      summary: Root endpoint
+      operationId: root
+      security: []
+      responses:
+        '200':
+          description: Welcome message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "Welcome to the Secure Library API (FastAPI)!"
+
+  /auth/register:
+    post:
+      summary: Register a new user
+      operationId: registerUser
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+            example:
+              email: "newuser@example.com"
+              password: "securepassword123"
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+              example:
+                message: "User created"
+        '400':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "User already exists"
+
+  /auth/login:
+    post:
+      summary: Login and get tokens
+      operationId: loginUser
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  example: "securepassword123"
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.abc123"
+                refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicmVmcmVzaCIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.xyz789"
+                token_type: "bearer"
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Invalid credentials"
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicmVmcmVzaCIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.xyz789"
+      responses:
+        '200':
+          description: New tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.newtoken"
+                refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicmVmcmVzaCIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.newrefresh"
+                token_type: "bearer"
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Could not validate refresh token"
+
+  /books/:
+    get:
+      summary: Get all books (paginated)
+      operationId: getAllBooks
+      tags:
+        - Books
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/BookStatus'
+        - name: author
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Тарас Шевченко"
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+            example: 10
+      responses:
+        '200':
+          description: Paginated list of books
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBookResponse'
+              example:
+                count: 2
+                skip: 0
+                limit: 10
+                books:
+                  - _id: "64a1f2e3b4c5d6e7f8a9b0c1"
+                    title: "Кобзар"
+                    author: "Тарас Шевченко"
+                    description: "Збірка поезій Тараса Шевченка"
+                    year: 1840
+                    status: "available"
+                  - _id: "64a1f2e3b4c5d6e7f8a9b0c2"
+                    title: "Тіні забутих предків"
+                    author: "Михайло Коцюбинський"
+                    description: "Повість про гуцульський побут"
+                    year: 1911
+                    status: "borrowed"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Not authenticated"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Rate limit exceeded"
+
+    post:
+      summary: Create a new book
+      operationId: createBook
+      tags:
+        - Books
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookCreate'
+            example:
+              title: "Лісова пісня"
+              author: "Леся Українка"
+              description: "Драма-феєрія"
+              year: 1912
+              status: "available"
+      responses:
+        '201':
+          description: Book created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookResponse'
+              example:
+                _id: "64a1f2e3b4c5d6e7f8a9b0c3"
+                title: "Лісова пісня"
+                author: "Леся Українка"
+                description: "Драма-феєрія"
+                year: 1912
+                status: "available"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Not authenticated"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Rate limit exceeded"
+
+  /books/{book_id}:
+    get:
+      summary: Get book by ID
+      operationId: getBookById
+      tags:
+        - Books
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "64a1f2e3b4c5d6e7f8a9b0c1"
+      responses:
+        '200':
+          description: Book found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookResponse'
+              example:
+                _id: "64a1f2e3b4c5d6e7f8a9b0c1"
+                title: "Кобзар"
+                author: "Тарас Шевченко"
+                description: "Збірка поезій Тараса Шевченка"
+                year: 1840
+                status: "available"
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Книгу не знайдено"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Not authenticated"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Rate limit exceeded"
+
+    delete:
+      summary: Delete book by ID
+      operationId: deleteBook
+      tags:
+        - Books
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "64a1f2e3b4c5d6e7f8a9b0c1"
+      responses:
+        '204':
+          description: Book deleted successfully
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Книгу не знайдено"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Not authenticated"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Rate limit exceeded"
